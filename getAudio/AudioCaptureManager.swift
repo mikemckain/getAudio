@@ -48,7 +48,7 @@ class AudioCaptureManager: ObservableObject {
 
     private var stream: SCStream?
     private var streamOutput: AudioStreamOutput?
-    private let audioQueue = DispatchQueue(label: "com.mike.AudioRecorder.audio")
+    private let audioQueue = DispatchQueue(label: "com.mike.getAudio.audio")
     private var playbackTimer: Timer?
     private var playbackPlayer: AVAudioPlayer?
     private static let maxLevels = 120
@@ -74,7 +74,7 @@ class AudioCaptureManager: ObservableObject {
         if let saved = UserDefaults.standard.string(forKey: "recordingsDirectory") {
             recordingsDirectory = URL(fileURLWithPath: saved)
         } else {
-            recordingsDirectory = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Music/AudioRecorder")
+            recordingsDirectory = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Music/getAudio")
         }
         if let savedSort = UserDefaults.standard.string(forKey: "sortOrder"),
            let order = SortOrder(rawValue: savedSort) {
@@ -117,7 +117,7 @@ class AudioCaptureManager: ObservableObject {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
 
         guard let display = content.displays.first else {
-            throw NSError(domain: "AudioRecorder", code: 1,
+            throw NSError(domain: "getAudio", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "No display found"])
         }
 

@@ -1,8 +1,7 @@
 import SwiftUI
-import AVFoundation
 import AppKit
 
-private let accentRed = Color(red: 209/255, green: 77/255, blue: 65/255)
+private let accentRed = Color(red: 175/255, green: 48/255, blue: 41/255)
 private let accentPurple = Color(red: 139/255, green: 126/255, blue: 200/255)
 
 class WindowState {
@@ -13,26 +12,27 @@ class WindowState {
 struct ContentView: View {
     @StateObject private var manager = AudioCaptureManager()
     @State private var windowState = WindowState()
-    @State private var isListExpanded = false
+    enum PanelState { case collapsed, list, settings }
+    @State private var panelState: PanelState = .collapsed
+    @State private var lastPanel: PanelState = .list
     @State private var errorMessage: String?
     @State private var playingRecording: AudioCaptureManager.Recording?
     @State private var editingRecording: AudioCaptureManager.Recording?
     @State private var editingName: String = ""
-    @State private var showingSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // Toolbar: waveform + record
+            // Recorder
             VStack(spacing: 12) {
                 HStack(spacing: 8) {
+                    RecordButton(isRecording: manager.isRecording, action: toggleRecording)
+
                     WaveformView(
                         levels: manager.isPlaying ? manager.playbackLevels : manager.audioLevels,
                         isRecording: manager.isRecording,
                         isPlaying: manager.isPlaying
                     )
-                    .frame(height: 40)
-
-                    RecordButton(isRecording: manager.isRecording, action: toggleRecording)
+                    .frame(height: 46)
                 }
 
                 if let errorMessage {
@@ -41,76 +41,72 @@ struct ContentView: View {
                         .foregroundColor(accentRed)
                 }
             }
-            .padding(.top, 8)
-            .padding(.horizontal)
-            .padding(.bottom, 8)
+            .padding(.horizontal, 10)
+            .padding(.top, 6)
+            .padding(.bottom, 14)
+            .frame(maxWidth: .infinity)
+            .background(Color(red: 0.18, green: 0.18, blue: 0.19))
             .fixedSize(horizontal: false, vertical: true)
 
             // Recordings list + settings overlay
             ZStack {
-                if manager.recordings.isEmpty {
-                    GeometryReader { geo in
+                Group {
+                    if manager.recordings.isEmpty {
+                        GeometryReader { geo in
+                            List {
+                                Text("No recordings yet")
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: geo.size.height)
+                                    .listRowSeparator(.hidden)
+                                    .listRowInsets(EdgeInsets())
+                            }
+                            .scrollDisabled(true)
+                        }
+                    } else {
                         List {
-                            Text("No recordings yet")
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: geo.size.height)
-                                .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets())
+                            ForEach(manager.recordings) { recording in
+                                RecordingRow(
+                                    recording: recording,
+                                    isPlaying: playingRecording == recording,
+                                    isEditing: editingRecording == recording,
+                                    editingName: $editingName,
+                                    onPlay: { togglePlayback(recording) },
+                                    onReveal: { manager.revealRecording(recording) },
+                                    onDelete: {
+                                        if playingRecording == recording { stopPlayback() }
+                                        manager.deleteRecording(recording)
+                                    },
+                                    onStartEditing: {
+                                        editingRecording = recording
+                                        editingName = recording.name
+                                    },
+                                    onCommitEditing: { commitRename(recording) },
+                                    onCancelEditing: { editingRecording = nil }
+                                )
+                            }
                         }
-                        .scrollDisabled(true)
-                    }
-                } else {
-                    List {
-                        ForEach(manager.recordings) { recording in
-                            RecordingRow(
-                                recording: recording,
-                                isPlaying: playingRecording == recording,
-                                isEditing: editingRecording == recording,
-                                editingName: $editingName,
-                                onPlay: { togglePlayback(recording) },
-                                onReveal: { manager.revealRecording(recording) },
-                                onDelete: {
-                                    if playingRecording == recording { stopPlayback() }
-                                    manager.deleteRecording(recording)
-                                },
-                                onStartEditing: {
-                                    editingRecording = recording
-                                    editingName = recording.name
-                                },
-                                onCommitEditing: { commitRename(recording) },
-                                onCancelEditing: { editingRecording = nil }
-                            )
-                        }
+                        .scrollIndicators(.hidden)
+                        .padding(.top, -4)
                     }
                 }
+                .opacity(lastPanel == .list ? 1 : 0)
 
-                if showingSettings {
-                    SettingsView(manager: manager, onClose: { showingSettings = false })
-                }
+                SettingsView(manager: manager, onClose: { togglePanel(.settings) })
+                    .opacity(lastPanel == .settings ? 1 : 0)
             }
             .clipped()
-
-            // Footer
-            HStack {
-                Text("v1.0")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.5))
-                Spacer()
-                ChevronButton(isExpanded: isListExpanded, action: { toggleListExpanded() })
-                Spacer()
-                SettingsButton(action: {
-                    if !isListExpanded {
-                        toggleListExpanded()
-                    }
-                    showingSettings.toggle()
-                })
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .fixedSize(horizontal: false, vertical: true)
         }
         .frame(minWidth: 380, maxWidth: .infinity, alignment: .top)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Spacer()
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
+                ChevronButton(isExpanded: panelState == .list, action: { togglePanel(.list) })
+                SettingsButton(isActive: panelState == .settings, action: { togglePanel(.settings) })
+            }
+        }
         .background(WindowAccessor(windowState: windowState))
     }
 
@@ -118,12 +114,15 @@ struct ContentView: View {
         Task {
             if manager.isRecording {
                 await manager.stopRecording()
-                if !isListExpanded {
-                    toggleListExpanded()
+                if panelState == .collapsed {
+                    togglePanel(.list)
                 }
-                if let newest = manager.recordings.first {
-                    editingRecording = newest
-                    editingName = newest.name
+                // Delay to let the list expand before selecting
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    if let newest = manager.recordings.first {
+                        editingRecording = newest
+                        editingName = newest.name
+                    }
                 }
             } else {
                 do {
@@ -137,9 +136,13 @@ struct ContentView: View {
     }
 
     private func commitRename(_ recording: AudioCaptureManager.Recording) {
-        if !manager.renameRecording(recording, to: editingName) {
-            errorMessage = "Couldn't rename — name may already exist"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { errorMessage = nil }
+        guard editingRecording != nil else { return }
+        let trimmed = editingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != recording.name && !trimmed.isEmpty {
+            if !manager.renameRecording(recording, to: editingName) {
+                errorMessage = "Couldn't rename — name may already exist"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { errorMessage = nil }
+            }
         }
         editingRecording = nil
     }
@@ -169,21 +172,34 @@ struct ContentView: View {
         playingRecording = nil
     }
 
-    private func toggleListExpanded() {
-        let listHeight: CGFloat = 330
+    private func togglePanel(_ panel: PanelState) {
+        let listHeight: CGFloat = 400
         let collapsed = windowState.collapsedHeight
         let expanded = collapsed + listHeight
 
-        isListExpanded.toggle()
+        if panelState == panel {
+            // Same panel tapped — collapse
+            panelState = .collapsed
+        } else if panelState == .collapsed {
+            // Currently collapsed — expand to requested panel
+            lastPanel = panel
+            panelState = panel
+        } else {
+            // Switching panels — instant, no resize
+            lastPanel = panel
+            panelState = panel
+            return
+        }
 
+        let expanding = panelState != .collapsed
         guard let window = windowState.window else { return }
         var frame = window.frame
         let topY = frame.origin.y + frame.size.height
-        let targetHeight = isListExpanded ? expanded : collapsed
+        let targetHeight = expanding ? expanded : collapsed
         frame.size.height = targetHeight
         frame.origin.y = topY - targetHeight
-        window.minSize.height = collapsed
-        window.maxSize.height = expanded
+        window.minSize.height = targetHeight
+        window.maxSize.height = targetHeight
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -221,13 +237,22 @@ struct RecordingRow: View {
 
             Spacer()
 
+            Text(recording.url.pathExtension.uppercased())
+                .font(.system(.body, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.5))
+                .padding(.trailing, 6)
+
             IconButton(icon: "folder", action: onReveal)
                 .help("Show in Finder")
 
             IconButton(icon: "trash", action: onDelete)
                 .help("Delete")
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 12)
+        .listRowInsets(EdgeInsets(top: 0, leading: -6, bottom: 0, trailing: -6))
+        .listRowSeparatorTint(Color.primary.opacity(0.08))
+        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
+        .alignmentGuide(.listRowSeparatorTrailing) { d in d[.trailing] }
     }
 }
 
@@ -240,12 +265,23 @@ struct RecordButton: View {
 
     var body: some View {
         Button(action: action) {
-            Circle()
-                .fill(isRecording ? accentRed : accentRed.opacity(0.7))
-                .frame(width: 14, height: 14)
-                .frame(width: 40, height: 40)
-                .background(isRecording ? accentRed.opacity(0.1) : isHovered ? Color.primary.opacity(0.1) : Color.primary.opacity(0.05))
-                .cornerRadius(10)
+            if isRecording {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(accentRed)
+                    .frame(width: 20, height: 20)
+                    .frame(width: 42, height: 42)
+                    .background(accentRed.opacity(0.15))
+                    .cornerRadius(11)
+                    .frame(width: 46, height: 46)
+            } else {
+                Circle()
+                    .fill(Color(red: 0.9, green: 0.2, blue: 0.15))
+                    .frame(width: 20, height: 20)
+                    .frame(width: 42, height: 42)
+                    .background(Color.white.opacity(isHovered ? 0.7 : 0.65))
+                    .cornerRadius(11)
+                    .frame(width: 46, height: 46)
+            }
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -262,9 +298,9 @@ struct PlayButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                .font(.system(size: 14))
+                .font(.system(size: 16))
                 .foregroundColor(accentPurple)
-                .frame(width: 40, height: 40)
+                .frame(width: 46, height: 46)
                 .background(isHovered ? accentPurple.opacity(0.15) : accentPurple.opacity(0.08))
                 .clipShape(Circle())
         }
@@ -283,11 +319,11 @@ struct IconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundColor(.secondary)
-                .frame(width: 40, height: 40)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary.opacity(isHovered ? 0.8 : 0.5))
+                .frame(width: 34, height: 34)
                 .background(isHovered ? Color.primary.opacity(0.1) : Color.primary.opacity(0.05))
-                .cornerRadius(10)
+                .cornerRadius(9)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -297,15 +333,18 @@ struct IconButton: View {
 // MARK: - Settings Button
 
 struct SettingsButton: View {
+    var isActive: Bool = false
     let action: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
             Image(systemName: "gearshape")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary.opacity(isHovered ? 0.8 : 0.5))
-                .offset(y: -1)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary.opacity(isActive ? 1.0 : isHovered ? 0.8 : 0.5))
+                .frame(width: 22, height: 22)
+                .background(isActive ? Color.primary.opacity(0.12) : isHovered ? Color.primary.opacity(0.1) : Color.clear)
+                .cornerRadius(6)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -321,11 +360,12 @@ struct ChevronButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "chevron.down")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.secondary.opacity(isHovered ? 0.8 : 0.5))
-                .rotationEffect(.degrees(isExpanded ? -180 : 0))
-                .animation(.easeInOut(duration: 0.25), value: isExpanded)
+            Image(systemName: "list.bullet")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.secondary.opacity(isExpanded ? 1.0 : isHovered ? 0.8 : 0.5))
+                .frame(width: 22, height: 22)
+                .background(isExpanded ? Color.primary.opacity(0.12) : isHovered ? Color.primary.opacity(0.1) : Color.clear)
+                .cornerRadius(6)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -354,9 +394,22 @@ struct WindowAccessor: NSViewRepresentable {
         let view = WindowObserverView()
         view.onWindowAvailable = { [windowState] window in
             windowState.window = window
-            windowState.collapsedHeight = window.frame.size.height
-            window.minSize = NSSize(width: 380, height: window.frame.size.height)
-            window.maxSize = NSSize(width: .greatestFiniteMagnitude, height: window.frame.size.height)
+            window.setFrameAutosaveName("")
+            window.titlebarAppearsTransparent = true
+            window.titlebarSeparatorStyle = .none
+            window.backgroundColor = NSColor.controlBackgroundColor
+
+            // Snap to defaultSize height to clear any cached frame
+            let targetHeight: CGFloat = 68
+            var frame = window.frame
+            let topY = frame.origin.y + frame.size.height
+            frame.size.height = targetHeight
+            frame.origin.y = topY - targetHeight
+            window.setFrame(frame, display: false)
+
+            windowState.collapsedHeight = targetHeight
+            window.minSize = NSSize(width: 380, height: targetHeight)
+            window.maxSize = NSSize(width: .greatestFiniteMagnitude, height: targetHeight)
         }
         return view
     }
@@ -430,7 +483,7 @@ struct WaveformView: View {
                 }
             }
         }
-        .background(Color.black.opacity(0.15))
+        .background(Color.black.opacity(0.35))
         .cornerRadius(8)
     }
 }
@@ -499,7 +552,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 20) {
                         VStack(alignment: .leading, spacing: 8) {
@@ -555,8 +608,6 @@ struct SettingsView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                    IconButton(icon: "xmark", action: onClose)
                 }
                 .padding()
             }
