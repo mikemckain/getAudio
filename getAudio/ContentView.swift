@@ -426,7 +426,10 @@ struct WaveformView: View {
     let isPlaying: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            let intensity: Float = isRecording ? 1.0 : (isPlaying ? 0.5 : 0.0)
+
             Canvas { context, size in
                 let barWidth: CGFloat = 2
                 let gap: CGFloat = 1.5
@@ -434,10 +437,8 @@ struct WaveformView: View {
                 let maxBars = Int(ceil(size.width / step))
 
                 if isRecording {
-                    // Live recording waveform
                     let visibleLevels = levels.suffix(maxBars)
                     let startX = size.width - CGFloat(visibleLevels.count) * step
-
                     for (i, level) in visibleLevels.enumerated() {
                         let x = startX + CGFloat(i) * step
                         let height = max(CGFloat(level) * size.height * 0.75, 1.5)
@@ -449,10 +450,8 @@ struct WaveformView: View {
                         )
                     }
                 } else if isPlaying {
-                    // Playback waveform
                     let visibleLevels = levels.suffix(maxBars)
                     let startX = size.width - CGFloat(visibleLevels.count) * step
-
                     for (i, level) in visibleLevels.enumerated() {
                         let x = startX + CGFloat(i) * step
                         let height = max(CGFloat(level) * size.height * 0.75, 1.5)
@@ -464,21 +463,54 @@ struct WaveformView: View {
                         )
                     }
                 } else {
-                    // Idle breathing waveform
-                    let time = timeline.date.timeIntervalSinceReferenceDate
+                    let t = time
+                    // Global breathing pulses at different rates
+                    let breath = sin(t * 0.7) * 0.5 + 0.5
+                    let breathSlow = sin(t * 0.35) * 0.5 + 0.5
+                    let morph = sin(t * 0.15) * 0.5 + 0.5
+
+                    // Symmetry center drifts slowly left and right
+                    let center = 0.5 + sin(t * 0.2) * 0.12 + sin(t * 0.13) * 0.06
+
                     for i in 0..<maxBars {
                         let x = CGFloat(i) * step
-                        let wave1 = sin(Double(i) * 0.15 + time * 0.8) * 0.3
-                        let wave2 = sin(Double(i) * 0.08 + time * 0.5) * 0.2
-                        let wave3 = sin(Double(i) * 0.22 + time * 1.1) * 0.1
-                        let combined = (wave1 + wave2 + wave3 + 0.6) * 0.25 + 0.05
-                        let level = max(min(combined, 1.0), 0.03)
+                        let pos = Double(i) / Double(maxBars)
+                        let mirror = min(abs(pos - center) * 2.0, 1.0)
+
+                        // Primary symmetric waves with morphing frequencies
+                        let wave1 = sin(mirror * (6.0 + morph * 4.0) + t * 0.8) * 0.3
+                        let wave2 = sin(mirror * 12.0 - t * 0.5 + sin(t * 0.3) * 2.0) * 0.2
+                        let wave3 = cos(mirror * 18.0 + t * 1.2) * 0.12 * (0.5 + breath * 0.5)
+                        let wave4 = sin(mirror * 4.0 + t * 0.4) * 0.18
+                        let wave5 = cos(mirror * 25.0 - t * 0.9) * 0.08
+
+                        // Organic break — slight pos-based wobble so it's not a perfect mirror
+                        let organic = sin(pos * 7.0 + t * 0.25) * 0.04 * sin(t * 0.4)
+
+                        // Ripple emanating from center
+                        let ripple = sin(mirror * 22.0 - t * 1.8) * 0.06 * max(1.0 - mirror * 1.5, 0.0)
+
+                        let base = 0.12 + breath * 0.1
+                        let combined = base + (wave1 + wave2 + wave3 + wave4 + wave5 + organic + ripple) * (0.25 + breath * 0.18)
+                        let level = max(min(combined, 0.85), 0.03)
+
                         let height = CGFloat(level) * size.height
                         let y = (size.height - height) / 2
                         let rect = CGRect(x: x, y: y, width: barWidth, height: height)
+
+                        // Layered opacity — center-bright with flowing modulation
+                        let centerFade = 1.0 - mirror * 0.5
+                        let opacityWave = sin(mirror * 12.0 + t * 1.2) * 0.06
+                        let opacityDrift = sin(pos * 6.0 + t * 0.3) * 0.02
+                        let opacity = (0.16 + breath * 0.08 + opacityWave + opacityDrift) * centerFade
+
+                        // Bright grey with subtle luminance variation
+                        let lum = 0.82 + sin(mirror * 6.0 + t * 0.7) * 0.06 * breathSlow
+                        let shimmer = 1.0 + cos(mirror * 16.0 - t * 1.1) * 0.03
+
                         context.fill(
                             Path(roundedRect: rect, cornerRadius: 1),
-                            with: .color(Color.primary.opacity(0.15))
+                            with: .color(Color(red: lum * shimmer, green: lum * shimmer, blue: lum * shimmer + 0.02).opacity(opacity))
                         )
                     }
                 }
