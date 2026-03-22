@@ -230,20 +230,21 @@ struct RecordingRow: View {
                 SelectAllTextField(text: $editingName, onSubmit: onCommitEditing, onCancel: onCancelEditing)
             } else {
                 Text(recording.name)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(.body))
                     .lineLimit(1)
                     .onTapGesture(count: 2, perform: onStartEditing)
             }
 
             Spacer()
 
-            Text(recording.url.pathExtension.uppercased())
-                .font(.system(.body, design: .monospaced))
+            Text(recording.formattedDuration)
+                .font(.system(.body))
                 .foregroundColor(.secondary.opacity(0.5))
-                .padding(.trailing, 6)
+                .padding(.trailing, 4)
 
             IconButton(icon: "folder", action: onReveal)
                 .help("Show in Finder")
+                .padding(.trailing, -2)
 
             IconButton(icon: "trash", action: onDelete)
                 .help("Delete")
@@ -266,20 +267,20 @@ struct RecordButton: View {
     var body: some View {
         Button(action: action) {
             if isRecording {
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 5)
                     .fill(accentRed)
-                    .frame(width: 20, height: 20)
-                    .frame(width: 42, height: 42)
+                    .frame(width: 17, height: 17)
+                    .frame(width: 44, height: 44)
                     .background(accentRed.opacity(0.15))
-                    .cornerRadius(11)
+                    .cornerRadius(12)
                     .frame(width: 46, height: 46)
             } else {
                 Circle()
                     .fill(Color(red: 0.9, green: 0.2, blue: 0.15))
                     .frame(width: 20, height: 20)
-                    .frame(width: 42, height: 42)
+                    .frame(width: 44, height: 44)
                     .background(Color.white.opacity(isHovered ? 0.7 : 0.65))
-                    .cornerRadius(11)
+                    .cornerRadius(12)
                     .frame(width: 46, height: 46)
             }
         }
@@ -497,7 +498,7 @@ struct SelectAllTextField: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
-        field.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        field.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         field.delegate = context.coordinator
         field.isBordered = true
         field.bezelStyle = .roundedBezel
@@ -544,6 +545,51 @@ struct SelectAllTextField: NSViewRepresentable {
     }
 }
 
+// MARK: - Tab Bar
+
+struct TabBar<T: Hashable>: View {
+    let options: [T]
+    @Binding var selection: T
+    let label: (T) -> String
+    var icon: ((T) -> String)? = nil
+    @Namespace private var tabNamespace
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options, id: \.self) { option in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selection = option
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        if let icon, !icon(option).isEmpty {
+                            Image(systemName: icon(option))
+                                .font(.system(size: 11))
+                        }
+                        Text(label(option))
+                            .font(.system(.body))
+                    }
+                    .foregroundColor(selection == option ? .primary : .secondary)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 10)
+                    .background {
+                        if selection == option {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(accentPurple.opacity(0.15))
+                                .matchedGeometryEffect(id: "tab", in: tabNamespace)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(Color.primary.opacity(0.06))
+        .cornerRadius(8)
+    }
+}
+
 // MARK: - Settings
 
 struct SettingsView: View {
@@ -557,59 +603,61 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 20) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Destination")
-                                .font(.system(.body, design: .monospaced))
+                                .font(.system(.body))
                                 .foregroundColor(.secondary)
 
-                            Text(shortenedPath(manager.recordingsDirectory))
-                                .font(.system(.body, design: .monospaced))
-                                .lineLimit(1)
-                                .truncationMode(.head)
-                                .padding(6)
-                                .background(Color.primary.opacity(0.05))
-                                .cornerRadius(6)
+                            HStack(spacing: 6) {
+                                Text(manager.recordingsDirectory.path)
+                                    .font(.system(.body))
+                                    .lineLimit(1)
+                                    .truncationMode(.head)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 9)
+                                    .background(Color.primary.opacity(0.05))
+                                    .cornerRadius(8)
 
-                            Button("Choose") {
-                                chooseFolder()
+                                Button("Choose") {
+                                    chooseFolder()
+                                }
+                                .buttonStyle(.plain)
+                                .font(.system(.body))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 9)
+                                .background(Color.primary.opacity(0.08))
+                                .cornerRadius(8)
                             }
-                            .buttonStyle(.plain)
-                            .font(.system(.body, design: .monospaced))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Color.primary.opacity(0.08))
-                            .cornerRadius(6)
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Format")
-                                .font(.system(.body, design: .monospaced))
+                                .font(.system(.body))
                                 .foregroundColor(.secondary)
 
-                            Picker("", selection: $manager.audioFormat) {
-                                ForEach(AudioFormat.allCases, id: \.self) { fmt in
-                                    Text(fmt.rawValue).tag(fmt)
-                                }
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.radioGroup)
+                            TabBar(options: AudioFormat.allCases, selection: $manager.audioFormat, label: \.rawValue)
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Sort by")
-                                .font(.system(.body, design: .monospaced))
+                                .font(.system(.body))
                                 .foregroundColor(.secondary)
 
-                            Picker("", selection: $manager.sortOrder) {
-                                ForEach(SortOrder.allCases, id: \.self) { order in
-                                    Text(order.rawValue).tag(order)
-                                }
+                            TabBar(options: SortOrder.allCases, selection: $manager.sortOrder, label: \.rawValue)
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Source")
+                                .font(.system(.body))
+                                .foregroundColor(.secondary)
+
+                            TabBar(options: AudioSource.allCases, selection: $manager.audioSource, label: \.rawValue) { src in
+                                src == .system ? "desktopcomputer" : "mic"
                             }
-                            .labelsHidden()
-                            .pickerStyle(.radioGroup)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding()
+                .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

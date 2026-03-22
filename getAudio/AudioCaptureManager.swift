@@ -5,8 +5,8 @@ import Accelerate
 import AppKit
 
 enum AudioFormat: String, CaseIterable {
-    case m4a = "M4A (AAC)"
-    case wav = "WAV (Lossless)"
+    case m4a = "M4A"
+    case wav = "WAV"
     case mp3 = "MP3"
 
     var ext: String {
@@ -18,11 +18,16 @@ enum AudioFormat: String, CaseIterable {
     }
 }
 
+enum AudioSource: String, CaseIterable {
+    case system = "System"
+    case mic = "Mic"
+}
+
 enum SortOrder: String, CaseIterable {
-    case dateNewest = "Date (newest first)"
-    case dateOldest = "Date (oldest first)"
-    case nameAZ = "Name (A → Z)"
-    case nameZA = "Name (Z → A)"
+    case dateNewest = "Newest"
+    case dateOldest = "Oldest"
+    case nameAZ = "A → Z"
+    case nameZA = "Z → A"
 }
 
 @MainActor
@@ -46,11 +51,20 @@ class AudioCaptureManager: ObservableObject {
         }
     }
 
+    @Published var audioSource: AudioSource = .system {
+        didSet {
+            UserDefaults.standard.set(audioSource.rawValue, forKey: "audioSource")
+        }
+    }
+
     private var stream: SCStream?
     private var streamOutput: AudioStreamOutput?
     private let audioQueue = DispatchQueue(label: "com.mike.getAudio.audio")
     private var playbackTimer: Timer?
     private var playbackPlayer: AVAudioPlayer?
+    private var micEngine: AVAudioEngine?
+    private var micFile: AVAudioFile?
+    private var micOutputURL: URL?
     private static let maxLevels = 120
 
     var recordingsDirectory: URL {
@@ -64,7 +78,14 @@ class AudioCaptureManager: ObservableObject {
     struct Recording: Identifiable, Hashable {
         let id = UUID()
         var url: URL
+        var duration: TimeInterval
         var name: String { url.deletingPathExtension().lastPathComponent }
+
+        var formattedDuration: String {
+            let m = Int(duration) / 60
+            let s = Int(duration) % 60
+            return String(format: "%d:%02d", m, s)
+        }
 
         static func == (lhs: Recording, rhs: Recording) -> Bool { lhs.url == rhs.url }
         func hash(into hasher: inout Hasher) { hasher.combine(url) }
@@ -83,6 +104,10 @@ class AudioCaptureManager: ObservableObject {
         if let savedFormat = UserDefaults.standard.string(forKey: "audioFormat"),
            let fmt = AudioFormat(rawValue: savedFormat) {
             audioFormat = fmt
+        }
+        if let savedSource = UserDefaults.standard.string(forKey: "audioSource"),
+           let src = AudioSource(rawValue: savedSource) {
+            audioSource = src
         }
         try? FileManager.default.createDirectory(at: recordingsDirectory, withIntermediateDirectories: true)
         loadRecordings()
@@ -110,10 +135,27 @@ class AudioCaptureManager: ObservableObject {
                         b.deletingPathExtension().lastPathComponent) == .orderedDescending
                 }
             }
-            .map { Recording(url: $0) }
+            .map { url in
+                let player = try? AVAudioPlayer(contentsOf: url)
+                return Recording(url: url, duration: player?.duration ?? 0)
+            }
     }
 
     func startRecording() async throws {
+        let filename = Self.dateFormatter.string(from: Date()) + "." + audioFormat.ext
+        let outputURL = recordingsDirectory.appendingPathComponent(filename)
+
+        if audioSource == .mic {
+            try startMicRecording(outputURL: outputURL)
+        } else {
+            try await startSystemRecording(outputURL: outputURL)
+        }
+
+        audioLevels = []
+        isRecording = true
+    }
+
+    private func startSystemRecording(outputURL: URL) async throws {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
 
         guard let display = content.displays.first else {
@@ -131,9 +173,6 @@ class AudioCaptureManager: ObservableObject {
 
         let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
 
-        let filename = Self.dateFormatter.string(from: Date()) + "." + audioFormat.ext
-        let outputURL = recordingsDirectory.appendingPathComponent(filename)
-
         let output = try AudioStreamOutput(outputURL: outputURL, format: audioFormat) { [weak self] level in
             Task { @MainActor in
                 guard let self else { return }
@@ -150,23 +189,97 @@ class AudioCaptureManager: ObservableObject {
 
         self.stream = stream
         self.streamOutput = output
-        audioLevels = []
-        isRecording = true
+    }
+
+    private func startMicRecording(outputURL: URL) throws {
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+
+        // Write to WAV first for mic (convert later if needed)
+        let writeURL = audioFormat == .m4a || audioFormat == .mp3
+            ? outputURL.deletingPathExtension().appendingPathExtension("wav")
+            : outputURL
+        let file = try AVAudioFile(forWriting: writeURL, settings: [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: format.sampleRate,
+            AVNumberOfChannelsKey: format.channelCount,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
+        ])
+
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+            try? file.write(from: buffer)
+
+            // RMS level for waveform
+            guard let channelData = buffer.floatChannelData?[0] else { return }
+            var rms: Float = 0
+            vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(buffer.frameLength))
+            let level = min(rms * 8, 1.0)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.audioLevels.append(level)
+                if self.audioLevels.count > Self.maxLevels {
+                    self.audioLevels.removeFirst(self.audioLevels.count - Self.maxLevels)
+                }
+            }
+        }
+
+        try engine.start()
+        self.micEngine = engine
+        self.micFile = file
+        self.micOutputURL = outputURL
     }
 
     func stopRecording() async {
-        guard let stream = stream else { return }
+        if let stream = stream {
+            try? await stream.stopCapture()
+            self.stream = nil
+            await streamOutput?.finish()
+            self.streamOutput = nil
+        }
 
-        try? await stream.stopCapture()
-        self.stream = nil
+        if let engine = micEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            self.micEngine = nil
+            self.micFile = nil
 
-        await streamOutput?.finish()
-        self.streamOutput = nil
+            // Convert WAV to target format if needed
+            if let outputURL = micOutputURL, audioFormat != .wav {
+                let wavURL = outputURL.deletingPathExtension().appendingPathExtension("wav")
+                if audioFormat == .m4a {
+                    await convertAudio(from: wavURL, to: outputURL, format: ".m4a", dataFormat: ".aac", bitRate: "320000")
+                } else if audioFormat == .mp3 {
+                    await convertAudio(from: wavURL, to: outputURL, format: ".mp3", dataFormat: ".mp3", bitRate: "320000")
+                }
+            }
+            self.micOutputURL = nil
+        }
 
         isRecording = false
         audioLevels = []
         loadRecordings()
         NSSound(named: "Pop")?.play()
+    }
+
+    private func convertAudio(from source: URL, to dest: URL, format: String, dataFormat: String, bitRate: String) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
+            process.arguments = [source.path, dest.path, "-f", format, "-d", dataFormat, "-b", bitRate]
+            process.terminationHandler = { _ in
+                try? FileManager.default.removeItem(at: source)
+                continuation.resume()
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume()
+            }
+        }
     }
 
     func deleteRecording(_ recording: Recording) {
