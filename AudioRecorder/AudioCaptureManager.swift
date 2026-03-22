@@ -1,0 +1,370 @@
+import Foundation
+import ScreenCaptureKit
+import AVFoundation
+import Accelerate
+import AppKit
+
+enum AudioFormat: String, CaseIterable {
+    case m4a = "M4A (AAC)"
+    case wav = "WAV (Lossless)"
+    case mp3 = "MP3"
+
+    var ext: String {
+        switch self {
+        case .m4a: return "m4a"
+        case .wav: return "wav"
+        case .mp3: return "mp3"
+        }
+    }
+}
+
+enum SortOrder: String, CaseIterable {
+    case dateNewest = "Date (newest first)"
+    case dateOldest = "Date (oldest first)"
+    case nameAZ = "Name (A → Z)"
+    case nameZA = "Name (Z → A)"
+}
+
+@MainActor
+class AudioCaptureManager: ObservableObject {
+    @Published var isRecording = false
+    @Published var isPlaying = false
+    @Published var recordings: [Recording] = []
+    @Published var audioLevels: [Float] = []
+    @Published var playbackLevels: [Float] = []
+
+    @Published var sortOrder: SortOrder = .dateNewest {
+        didSet {
+            UserDefaults.standard.set(sortOrder.rawValue, forKey: "sortOrder")
+            loadRecordings()
+        }
+    }
+
+    @Published var audioFormat: AudioFormat = .m4a {
+        didSet {
+            UserDefaults.standard.set(audioFormat.rawValue, forKey: "audioFormat")
+        }
+    }
+
+    private var stream: SCStream?
+    private var streamOutput: AudioStreamOutput?
+    private let audioQueue = DispatchQueue(label: "com.mike.AudioRecorder.audio")
+    private var playbackTimer: Timer?
+    private var playbackPlayer: AVAudioPlayer?
+    private static let maxLevels = 120
+
+    var recordingsDirectory: URL {
+        didSet {
+            UserDefaults.standard.set(recordingsDirectory.path, forKey: "recordingsDirectory")
+            try? FileManager.default.createDirectory(at: recordingsDirectory, withIntermediateDirectories: true)
+            loadRecordings()
+        }
+    }
+
+    struct Recording: Identifiable, Hashable {
+        let id = UUID()
+        var url: URL
+        var name: String { url.deletingPathExtension().lastPathComponent }
+
+        static func == (lhs: Recording, rhs: Recording) -> Bool { lhs.url == rhs.url }
+        func hash(into hasher: inout Hasher) { hasher.combine(url) }
+    }
+
+    init() {
+        if let saved = UserDefaults.standard.string(forKey: "recordingsDirectory") {
+            recordingsDirectory = URL(fileURLWithPath: saved)
+        } else {
+            recordingsDirectory = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Music/AudioRecorder")
+        }
+        if let savedSort = UserDefaults.standard.string(forKey: "sortOrder"),
+           let order = SortOrder(rawValue: savedSort) {
+            sortOrder = order
+        }
+        if let savedFormat = UserDefaults.standard.string(forKey: "audioFormat"),
+           let fmt = AudioFormat(rawValue: savedFormat) {
+            audioFormat = fmt
+        }
+        try? FileManager.default.createDirectory(at: recordingsDirectory, withIntermediateDirectories: true)
+        loadRecordings()
+    }
+
+    func loadRecordings() {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: recordingsDirectory,
+            includingPropertiesForKeys: [.creationDateKey],
+            options: .skipsHiddenFiles
+        )) ?? []
+        recordings = files
+            .filter { ["m4a", "wav", "mp3"].contains($0.pathExtension.lowercased()) }
+            .sorted { a, b in
+                switch sortOrder {
+                case .dateNewest, .dateOldest:
+                    let d0 = (try? a.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+                    let d1 = (try? b.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+                    return sortOrder == .dateNewest ? d0 > d1 : d0 < d1
+                case .nameAZ:
+                    return a.deletingPathExtension().lastPathComponent.localizedCaseInsensitiveCompare(
+                        b.deletingPathExtension().lastPathComponent) == .orderedAscending
+                case .nameZA:
+                    return a.deletingPathExtension().lastPathComponent.localizedCaseInsensitiveCompare(
+                        b.deletingPathExtension().lastPathComponent) == .orderedDescending
+                }
+            }
+            .map { Recording(url: $0) }
+    }
+
+    func startRecording() async throws {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+
+        guard let display = content.displays.first else {
+            throw NSError(domain: "AudioRecorder", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "No display found"])
+        }
+
+        let config = SCStreamConfiguration()
+        config.capturesAudio = true
+        config.excludesCurrentProcessAudio = false
+        config.channelCount = 2
+        config.sampleRate = 48000
+        config.width = 2
+        config.height = 2
+
+        let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+
+        let filename = Self.dateFormatter.string(from: Date()) + "." + audioFormat.ext
+        let outputURL = recordingsDirectory.appendingPathComponent(filename)
+
+        let output = try AudioStreamOutput(outputURL: outputURL, format: audioFormat) { [weak self] level in
+            Task { @MainActor in
+                guard let self else { return }
+                self.audioLevels.append(level)
+                if self.audioLevels.count > Self.maxLevels {
+                    self.audioLevels.removeFirst(self.audioLevels.count - Self.maxLevels)
+                }
+            }
+        }
+
+        let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+        try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: audioQueue)
+        try await stream.startCapture()
+
+        self.stream = stream
+        self.streamOutput = output
+        audioLevels = []
+        isRecording = true
+    }
+
+    func stopRecording() async {
+        guard let stream = stream else { return }
+
+        try? await stream.stopCapture()
+        self.stream = nil
+
+        await streamOutput?.finish()
+        self.streamOutput = nil
+
+        isRecording = false
+        audioLevels = []
+        loadRecordings()
+        NSSound(named: "Pop")?.play()
+    }
+
+    func deleteRecording(_ recording: Recording) {
+        try? FileManager.default.removeItem(at: recording.url)
+        loadRecordings()
+    }
+
+    func renameRecording(_ recording: Recording, to newName: String) -> Bool {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let ext = recording.url.pathExtension
+        let newURL = recording.url.deletingLastPathComponent().appendingPathComponent(trimmed + "." + ext)
+        guard !FileManager.default.fileExists(atPath: newURL.path) else { return false }
+
+        do {
+            try FileManager.default.moveItem(at: recording.url, to: newURL)
+            loadRecordings()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func startPlayback(_ recording: Recording) -> Bool {
+        stopPlayback()
+        do {
+            let player = try AVAudioPlayer(contentsOf: recording.url)
+            player.isMeteringEnabled = true
+            player.play()
+            playbackPlayer = player
+            isPlaying = true
+            playbackLevels = []
+            playbackTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, let player = self.playbackPlayer else { return }
+                    if !player.isPlaying {
+                        self.stopPlayback()
+                        return
+                    }
+                    player.updateMeters()
+                    let avg = player.averagePower(forChannel: 0)
+                    // Convert dB to linear (0-1), dB range roughly -60 to 0
+                    let linear = pow(10, avg / 20)
+                    let level = min(linear * 2.5, 1.0)
+                    self.playbackLevels.append(level)
+                    if self.playbackLevels.count > Self.maxLevels {
+                        self.playbackLevels.removeFirst(self.playbackLevels.count - Self.maxLevels)
+                    }
+                }
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func stopPlayback() {
+        playbackTimer?.invalidate()
+        playbackTimer = nil
+        playbackPlayer?.stop()
+        playbackPlayer = nil
+        isPlaying = false
+        playbackLevels = []
+    }
+
+    func revealRecording(_ recording: Recording) {
+        NSWorkspace.shared.activateFileViewerSelecting([recording.url])
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        return f
+    }()
+}
+
+class AudioStreamOutput: NSObject, SCStreamOutput {
+    private let assetWriter: AVAssetWriter
+    private let audioInput: AVAssetWriterInput
+    private var sessionStarted = false
+    private let onLevel: @Sendable (Float) -> Void
+    private let format: AudioFormat
+    private let finalOutputURL: URL?
+
+    init(outputURL: URL, format: AudioFormat, onLevel: @escaping @Sendable (Float) -> Void) throws {
+        self.onLevel = onLevel
+        self.format = format
+
+        let fileType: AVFileType
+        let settings: [String: Any]
+        let writerURL: URL
+
+        switch format {
+        case .m4a:
+            writerURL = outputURL
+            fileType = .m4a
+            settings = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 48000,
+                AVNumberOfChannelsKey: 2,
+                AVEncoderBitRateKey: 320000,
+                AVEncoderAudioQualityKey: AVAudioQuality.max.rawValue
+            ]
+            finalOutputURL = nil
+        case .wav:
+            writerURL = outputURL
+            fileType = .wav
+            settings = [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 48000,
+                AVNumberOfChannelsKey: 2,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false
+            ]
+            finalOutputURL = nil
+        case .mp3:
+            // Record to temp WAV, convert to MP3 in finish()
+            writerURL = outputURL.deletingPathExtension().appendingPathExtension("wav")
+            fileType = .wav
+            settings = [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 48000,
+                AVNumberOfChannelsKey: 2,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false
+            ]
+            finalOutputURL = outputURL
+        }
+
+        assetWriter = try AVAssetWriter(outputURL: writerURL, fileType: fileType)
+        audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+        audioInput.expectsMediaDataInRealTime = true
+        assetWriter.add(audioInput)
+        assetWriter.startWriting()
+        super.init()
+    }
+
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .audio,
+              sampleBuffer.isValid,
+              CMSampleBufferGetNumSamples(sampleBuffer) > 0 else { return }
+
+        if !sessionStarted {
+            assetWriter.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+            sessionStarted = true
+        }
+
+        if audioInput.isReadyForMoreMediaData {
+            audioInput.append(sampleBuffer)
+        }
+
+        // Extract RMS level for waveform
+        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        var length = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &dataPointer)
+
+        guard let data = dataPointer else { return }
+        let floatCount = length / MemoryLayout<Float>.size
+        guard floatCount > 0 else { return }
+
+        data.withMemoryRebound(to: Float.self, capacity: floatCount) { floatPointer in
+            var rms: Float = 0
+            vDSP_rmsqv(floatPointer, 1, &rms, vDSP_Length(floatCount))
+            let level = min(rms * 8, 1.0) // Scale up for visible waveform
+            onLevel(level)
+        }
+    }
+
+    func finish() async {
+        audioInput.markAsFinished()
+        if assetWriter.status == .writing {
+            await assetWriter.finishWriting()
+        }
+
+        if let finalURL = finalOutputURL {
+            let tempURL = assetWriter.outputURL
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
+                process.arguments = [tempURL.path, finalURL.path, "-f", ".mp3", "-d", ".mp3", "-b", "320000"]
+                process.terminationHandler = { proc in
+                    if proc.terminationStatus == 0 {
+                        try? FileManager.default.removeItem(at: tempURL)
+                    }
+                    continuation.resume()
+                }
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+}
