@@ -56,7 +56,7 @@ struct ContentView: View {
             .padding(.horizontal, 13)
             .padding(.vertical, panelState == .collapsed ? 0 : 14)
             .frame(maxWidth: .infinity, maxHeight: panelState == .collapsed ? .infinity : nil)
-            .background(Color(red: 0.18, green: 0.18, blue: 0.19))
+            .background(Color(red: 0.1, green: 0.1, blue: 0.1))
             .layoutPriority(1)
 
             // Recordings list + settings overlay
@@ -105,6 +105,11 @@ struct ContentView: View {
 
                 SettingsView(manager: manager, onClose: { togglePanel(.settings) })
                     .opacity(lastPanel == .settings ? 1 : 0)
+            }
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(height: 1)
             }
             .clipped()
         }
@@ -305,7 +310,7 @@ struct RecordButton: View {
                         width: isRecording ? 24 : 48,
                         height: isRecording ? 24 : 48
                     )
-                    .scaleEffect(isPressed ? (isRecording ? 0.9 : 1.08) : 1.0)
+                    .scaleEffect(isPressed ? (isRecording ? 0.9 : 1.08) : isHovered ? 1.06 : 1.0)
 
                 // White ring
                 Circle()
@@ -474,6 +479,8 @@ struct WaveformView: View {
     var drainRate: Double
     @State private var idleStart: Double = 0
     @State private var lastRenderedLevels: [Float] = []
+    @State private var smoothTime: Double = 0
+    @State private var lastFrameTime: Double = 0
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
@@ -491,7 +498,8 @@ struct WaveformView: View {
                     let emptyBars = maxBars - visibleLevels.count
                     for i in 0..<emptyBars {
                         let x = CGFloat(i) * step
-                        let h: CGFloat = 3
+                        let ef = min(x / (size.width * 0.06), 1) * min((size.width - x) / (size.width * 0.06), 1)
+                        let h: CGFloat = 3 * ef
                         let y = (size.height - h) / 2
                         let rect = CGRect(x: x, y: y, width: barWidth, height: h)
                         context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(Color.white.opacity(0.15)))
@@ -499,7 +507,8 @@ struct WaveformView: View {
                     let startX = size.width - CGFloat(visibleLevels.count) * step
                     for (i, level) in visibleLevels.enumerated() {
                         let x = startX + CGFloat(i) * step
-                        let height = max(CGFloat(level) * size.height * 0.95, 1.5)
+                        let ef = min(x / (size.width * 0.06), 1) * min((size.width - x) / (size.width * 0.06), 1)
+                        let height = max(CGFloat(level) * size.height * 0.95, 1.5) * ef
                         let y = (size.height - height) / 2
                         let rect = CGRect(x: x, y: y, width: barWidth, height: height)
                         context.fill(
@@ -514,7 +523,8 @@ struct WaveformView: View {
                     let emptyBars = maxBars - visibleLevels.count
                     for i in 0..<emptyBars {
                         let x = CGFloat(i) * step
-                        let h: CGFloat = 3
+                        let ef = min(x / (size.width * 0.06), 1) * min((size.width - x) / (size.width * 0.06), 1)
+                        let h: CGFloat = 3 * ef
                         let y = (size.height - h) / 2
                         let rect = CGRect(x: x, y: y, width: barWidth, height: h)
                         context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(Color.white.opacity(0.15)))
@@ -522,7 +532,8 @@ struct WaveformView: View {
                     let startX = size.width - CGFloat(visibleLevels.count) * step
                     for (i, level) in visibleLevels.enumerated() {
                         let x = startX + CGFloat(i) * step
-                        let height = max(CGFloat(level) * size.height * 0.95, 1.5)
+                        let ef = min(x / (size.width * 0.06), 1) * min((size.width - x) / (size.width * 0.06), 1)
+                        let height = max(CGFloat(level) * size.height * 0.95, 1.5) * ef
                         let y = (size.height - height) / 2
                         let rect = CGRect(x: x, y: y, width: barWidth, height: height)
                         context.fill(
@@ -552,7 +563,8 @@ struct WaveformView: View {
                         let x = frozenStartX + CGFloat(i) * step
                         if x + barWidth < 0 { continue }
                         if x >= size.width { break }
-                        let height = max(CGFloat(level) * size.height * 0.95, 1.5)
+                        let ef = min(x / (size.width * 0.06), 1) * min((size.width - x) / (size.width * 0.06), 1)
+                        let height = max(CGFloat(level) * size.height * 0.95, 1.5) * ef
                         let y = (size.height - height) / 2
                         let rect = CGRect(x: x, y: y, width: barWidth, height: height)
                         context.fill(
@@ -566,7 +578,8 @@ struct WaveformView: View {
                     let greyStartBar = Int(ceil(greyStartX / step))
                     for i in greyStartBar..<maxBars {
                         let x = CGFloat(i) * step
-                        let h: CGFloat = 3
+                        let ef = min(x / (size.width * 0.06), 1) * min((size.width - x) / (size.width * 0.06), 1)
+                        let h: CGFloat = 3 * ef
                         let y = (size.height - h) / 2
                         let rect = CGRect(x: x, y: y, width: barWidth, height: h)
                         context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(Color.white.opacity(0.15)))
@@ -581,9 +594,14 @@ struct WaveformView: View {
                         }
                     }
                 } else {
-                    // Warp time so the waveform subtly speeds up and slows down
+                    // Smoothed time — cap delta to prevent jumps on dropped frames
                     let raw = time
-                    let t = raw + sin(raw * 0.3) * 0.4 + sin(raw * 0.17) * 0.25
+                    let delta = lastFrameTime > 0 ? min(raw - lastFrameTime, 1.0 / 30.0) : 0
+                    let st = smoothTime + delta
+                    DispatchQueue.main.async { lastFrameTime = raw; smoothTime = st }
+
+                    // Warp time so the waveform subtly speeds up and slows down
+                    let t = st + sin(st * 0.3) * 0.4 + sin(st * 0.17) * 0.25
 
                     // Ramp from flat to full idle over 1.2s
                     let elapsed = idleStart > 0 ? raw - idleStart : 999.0
@@ -619,7 +637,8 @@ struct WaveformView: View {
                         // Lerp from flat baseline to full idle height
                         let flatHeight: CGFloat = 3
                         let fullHeight = CGFloat(idleLevel) * size.height
-                        let height = flatHeight + (fullHeight - flatHeight) * ramp
+                        let ef = min(CGFloat(pos) / 0.06, 1) * min(CGFloat(1.0 - pos) / 0.06, 1)
+                        let height = (flatHeight + (fullHeight - flatHeight) * ramp) * ef
 
                         let y = (size.height - height) / 2
                         let rect = CGRect(x: x, y: y, width: barWidth, height: height)
@@ -642,7 +661,7 @@ struct WaveformView: View {
                 }
             }
         }
-        .background(Color.black.opacity(0.5))
+        .background(Color(red: 0.1, green: 0.1, blue: 0.1))
         .cornerRadius(8)
         .onChange(of: isPlaying) { wasPlaying, nowPlaying in
             if wasPlaying && !nowPlaying && !isRecording {
