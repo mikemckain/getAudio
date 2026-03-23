@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="getAudio-logo.png" width="128" alt="getAudio icon">
+  <img src="github-header.png" alt="getAudio">
 </p>
 
 # getAudio
