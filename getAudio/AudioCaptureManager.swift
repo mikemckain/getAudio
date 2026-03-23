@@ -7,13 +7,11 @@ import AppKit
 enum AudioFormat: String, CaseIterable {
     case m4a = "M4A"
     case wav = "WAV"
-    case mp3 = "MP3"
 
     var ext: String {
         switch self {
         case .m4a: return "m4a"
         case .wav: return "wav"
-        case .mp3: return "mp3"
         }
     }
 }
@@ -55,6 +53,9 @@ class AudioCaptureManager: ObservableObject {
     @Published var audioSource: AudioSource = .system {
         didSet {
             UserDefaults.standard.set(audioSource.rawValue, forKey: "audioSource")
+            if audioSource == .mic {
+                AVCaptureDevice.requestAccess(for: .audio) { _ in }
+            }
         }
     }
 
@@ -66,6 +67,8 @@ class AudioCaptureManager: ObservableObject {
     private var micEngine: AVAudioEngine?
     private var micFile: AVAudioFile?
     private var micOutputURL: URL?
+    private var currentRecordingLevel: Float = 0
+    private var levelTimer: Timer?
     private static let maxLevels = 120
 
     var recordingsDirectory: URL {
@@ -154,7 +157,19 @@ class AudioCaptureManager: ObservableObject {
 
         audioLevels = []
         levelAppendCount = 0
+        currentRecordingLevel = 0
         isRecording = true
+
+        levelTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 47.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isRecording else { return }
+                self.audioLevels.append(self.currentRecordingLevel)
+                self.levelAppendCount += 1
+                if self.audioLevels.count > Self.maxLevels {
+                    self.audioLevels.removeFirst(self.audioLevels.count - Self.maxLevels)
+                }
+            }
+        }
     }
 
     private func startSystemRecording(outputURL: URL) async throws {
@@ -177,12 +192,7 @@ class AudioCaptureManager: ObservableObject {
 
         let output = try AudioStreamOutput(outputURL: outputURL, format: audioFormat) { [weak self] level in
             Task { @MainActor in
-                guard let self else { return }
-                self.audioLevels.append(level)
-                self.levelAppendCount += 1
-                if self.audioLevels.count > Self.maxLevels {
-                    self.audioLevels.removeFirst(self.audioLevels.count - Self.maxLevels)
-                }
+                self?.currentRecordingLevel = level
             }
         }
 
@@ -199,8 +209,8 @@ class AudioCaptureManager: ObservableObject {
         let inputNode = engine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
 
-        // Write to WAV first for mic (convert later if needed)
-        let writeURL = audioFormat == .m4a || audioFormat == .mp3
+        // Write to WAV first for mic (convert to M4A later if needed)
+        let writeURL = audioFormat == .m4a
             ? outputURL.deletingPathExtension().appendingPathExtension("wav")
             : outputURL
         let file = try AVAudioFile(forWriting: writeURL, settings: [
@@ -213,21 +223,15 @@ class AudioCaptureManager: ObservableObject {
             AVLinearPCMIsNonInterleaved: false
         ])
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             try? file.write(from: buffer)
 
-            // RMS level for waveform
             guard let channelData = buffer.floatChannelData?[0] else { return }
             var rms: Float = 0
             vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(buffer.frameLength))
             let level = min(rms * 8, 1.0)
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.audioLevels.append(level)
-                self.levelAppendCount += 1
-                if self.audioLevels.count > Self.maxLevels {
-                    self.audioLevels.removeFirst(self.audioLevels.count - Self.maxLevels)
-                }
+                self?.currentRecordingLevel = level
             }
         }
 
@@ -255,14 +259,14 @@ class AudioCaptureManager: ObservableObject {
             if let outputURL = micOutputURL, audioFormat != .wav {
                 let wavURL = outputURL.deletingPathExtension().appendingPathExtension("wav")
                 if audioFormat == .m4a {
-                    await convertAudio(from: wavURL, to: outputURL, format: ".m4a", dataFormat: ".aac", bitRate: "320000")
-                } else if audioFormat == .mp3 {
-                    await convertAudio(from: wavURL, to: outputURL, format: ".mp3", dataFormat: ".mp3", bitRate: "320000")
+                    await convertAudio(from: wavURL, to: outputURL, format: "m4af", dataFormat: "aac", bitRate: "320000")
                 }
             }
             self.micOutputURL = nil
         }
 
+        levelTimer?.invalidate()
+        levelTimer = nil
         isRecording = false
         audioLevels = []
         loadRecordings()
@@ -317,7 +321,7 @@ class AudioCaptureManager: ObservableObject {
             playbackPlayer = player
             isPlaying = true
             playbackLevels = []
-            playbackTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            playbackTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 47.0, repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self, let player = self.playbackPlayer else { return }
                     if !player.isPlaying {
@@ -367,7 +371,6 @@ class AudioStreamOutput: NSObject, SCStreamOutput {
     private var sessionStarted = false
     private let onLevel: @Sendable (Float) -> Void
     private let format: AudioFormat
-    private let finalOutputURL: URL?
 
     init(outputURL: URL, format: AudioFormat, onLevel: @escaping @Sendable (Float) -> Void) throws {
         self.onLevel = onLevel
@@ -388,7 +391,6 @@ class AudioStreamOutput: NSObject, SCStreamOutput {
                 AVEncoderBitRateKey: 320000,
                 AVEncoderAudioQualityKey: AVAudioQuality.max.rawValue
             ]
-            finalOutputURL = nil
         case .wav:
             writerURL = outputURL
             fileType = .wav
@@ -401,21 +403,6 @@ class AudioStreamOutput: NSObject, SCStreamOutput {
                 AVLinearPCMIsBigEndianKey: false,
                 AVLinearPCMIsNonInterleaved: false
             ]
-            finalOutputURL = nil
-        case .mp3:
-            // Record to temp WAV, convert to MP3 in finish()
-            writerURL = outputURL.deletingPathExtension().appendingPathExtension("wav")
-            fileType = .wav
-            settings = [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVSampleRateKey: 48000,
-                AVNumberOfChannelsKey: 2,
-                AVLinearPCMBitDepthKey: 16,
-                AVLinearPCMIsFloatKey: false,
-                AVLinearPCMIsBigEndianKey: false,
-                AVLinearPCMIsNonInterleaved: false
-            ]
-            finalOutputURL = outputURL
         }
 
         assetWriter = try AVAssetWriter(outputURL: writerURL, fileType: fileType)
@@ -464,24 +451,5 @@ class AudioStreamOutput: NSObject, SCStreamOutput {
             await assetWriter.finishWriting()
         }
 
-        if let finalURL = finalOutputURL {
-            let tempURL = assetWriter.outputURL
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
-                process.arguments = [tempURL.path, finalURL.path, "-f", ".mp3", "-d", ".mp3", "-b", "320000"]
-                process.terminationHandler = { proc in
-                    if proc.terminationStatus == 0 {
-                        try? FileManager.default.removeItem(at: tempURL)
-                    }
-                    continuation.resume()
-                }
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume()
-                }
-            }
-        }
     }
 }

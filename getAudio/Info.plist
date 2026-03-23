@@ -20,5 +20,7 @@
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>getAudio needs microphone access to record audio from your mic.</string>
 </dict>
 </plist>
