@@ -6,7 +6,7 @@ struct getAudioApp: App {
         WindowGroup {
             ContentView()
         }
-        .defaultSize(width: 380, height: 68)
-        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
+        .defaultSize(width: 440, height: 98)
+        .windowStyle(.hiddenTitleBar)
     }
 }

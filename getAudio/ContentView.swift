@@ -27,8 +27,8 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Recorder
-            VStack(spacing: 13) {
-                HStack(spacing: 9) {
+            VStack(spacing: 15) {
+                HStack(spacing: 10) {
                     RecordButton(isRecording: manager.isRecording, action: toggleRecording)
 
                     WaveformView(
@@ -39,7 +39,12 @@ struct ContentView: View {
                         drainStartTime: drainStartTime,
                         drainRate: drainRate
                     )
-                    .frame(height: 50)
+                    .frame(height: 78)
+
+                    VStack(spacing: 6) {
+                        ChevronButton(isExpanded: panelState == .list, action: { togglePanel(.list) })
+                        SettingsButton(isActive: panelState == .settings, action: { togglePanel(.settings) })
+                    }
                 }
 
                 if let errorMessage {
@@ -48,12 +53,11 @@ struct ContentView: View {
                         .foregroundColor(accentRed)
                 }
             }
-            .padding(.horizontal, 11)
-            .padding(.top, 7)
-            .padding(.bottom, 15)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 13)
+            .padding(.vertical, panelState == .collapsed ? 0 : 14)
+            .frame(maxWidth: .infinity, maxHeight: panelState == .collapsed ? .infinity : nil)
             .background(Color(red: 0.18, green: 0.18, blue: 0.19))
-            .fixedSize(horizontal: false, vertical: true)
+            .layoutPriority(1)
 
             // Recordings list + settings overlay
             ZStack {
@@ -104,16 +108,8 @@ struct ContentView: View {
             }
             .clipped()
         }
-        .frame(minWidth: 380, maxWidth: .infinity, alignment: .top)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Spacer()
-            }
-            ToolbarItemGroup(placement: .primaryAction) {
-                ChevronButton(isExpanded: panelState == .list, action: { togglePanel(.list) })
-                SettingsButton(isActive: panelState == .settings, action: { togglePanel(.settings) })
-            }
-        }
+        .frame(minWidth: 440, maxWidth: .infinity, alignment: .top)
+        .ignoresSafeArea()
         .background(WindowAccessor(windowState: windowState))
     }
 
@@ -189,9 +185,9 @@ struct ContentView: View {
         let collapsed = windowState.collapsedHeight
         let expanded = collapsed + listHeight
 
-        if panelState == panel {
-            // Same panel tapped — collapse
-            panelState = .collapsed
+        let isCollapsing = panelState == panel
+        if isCollapsing {
+            // Same panel tapped — collapse (delay state change until animation finishes)
         } else if panelState == .collapsed {
             // Currently collapsed — expand to requested panel
             lastPanel = panel
@@ -203,20 +199,30 @@ struct ContentView: View {
             return
         }
 
-        let expanding = panelState != .collapsed
         guard let window = windowState.window else { return }
         var frame = window.frame
         let topY = frame.origin.y + frame.size.height
-        let targetHeight = expanding ? expanded : collapsed
+        let targetHeight = isCollapsing ? collapsed : expanded
         frame.size.height = targetHeight
         frame.origin.y = topY - targetHeight
         window.minSize.height = targetHeight
         window.maxSize.height = targetHeight
-        NSAnimationContext.runAnimationGroup { context in
+        NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             window.animator().setFrame(frame, display: true)
-        }
+        }, completionHandler: isCollapsing ? { [windowState] in
+            panelState = .collapsed
+            if let window = windowState.window {
+                let h = windowState.collapsedHeight
+                var f = window.frame
+                f.origin.y = f.origin.y + f.size.height - h
+                f.size.height = h
+                window.setFrame(f, display: true)
+                window.minSize.height = h
+                window.maxSize.height = h
+            }
+        } : nil)
     }
 }
 
@@ -287,21 +293,21 @@ struct RecordButton: View {
     var body: some View {
         Button(action: action) {
             if isRecording {
-                RoundedRectangle(cornerRadius: 5.5)
+                RoundedRectangle(cornerRadius: 7)
                     .fill(accentRed)
-                    .frame(width: 19, height: 19)
-                    .frame(width: 48, height: 48)
+                    .frame(width: 25, height: 25)
+                    .frame(width: 72, height: 72)
                     .background(accentRed.opacity(0.15))
-                    .cornerRadius(13)
-                    .frame(width: 50, height: 50)
+                    .cornerRadius(18)
+                    .frame(width: 78, height: 78)
             } else {
                 Circle()
                     .fill(Color(red: 0.9, green: 0.2, blue: 0.15))
-                    .frame(width: 22, height: 22)
-                    .frame(width: 48, height: 48)
+                    .frame(width: 28, height: 28)
+                    .frame(width: 72, height: 72)
                     .background(Color.white.opacity(isHovered ? 0.7 : 0.65))
-                    .cornerRadius(13)
-                    .frame(width: 50, height: 50)
+                    .cornerRadius(18)
+                    .frame(width: 78, height: 78)
             }
         }
         .buttonStyle(.plain)
@@ -416,21 +422,29 @@ struct WindowAccessor: NSViewRepresentable {
         view.onWindowAvailable = { [windowState] window in
             windowState.window = window
             window.setFrameAutosaveName("")
+            window.styleMask.insert(.fullSizeContentView)
             window.titlebarAppearsTransparent = true
-            window.titlebarSeparatorStyle = .none
             window.backgroundColor = NSColor.controlBackgroundColor
+            window.isMovableByWindowBackground = true
+            window.standardWindowButton(.closeButton)?.isHidden = true
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
 
             // Snap to defaultSize height to clear any cached frame
-            let targetHeight: CGFloat = 75
+            let targetHeight: CGFloat = 98
             var frame = window.frame
             let topY = frame.origin.y + frame.size.height
             frame.size.height = targetHeight
             frame.origin.y = topY - targetHeight
             window.setFrame(frame, display: false)
 
-            windowState.collapsedHeight = targetHeight
             window.minSize = NSSize(width: 380, height: targetHeight)
             window.maxSize = NSSize(width: .greatestFiniteMagnitude, height: targetHeight)
+
+            // Capture actual window height after SwiftUI finishes layout
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                windowState.collapsedHeight = window.frame.size.height
+            }
         }
         return view
     }
@@ -556,10 +570,12 @@ struct WaveformView: View {
                         }
                     }
                 } else {
-                    let t = time
+                    // Warp time so the waveform subtly speeds up and slows down
+                    let raw = time
+                    let t = raw + sin(raw * 0.3) * 0.4 + sin(raw * 0.17) * 0.25
 
                     // Ramp from flat to full idle over 1.2s
-                    let elapsed = idleStart > 0 ? t - idleStart : 999.0
+                    let elapsed = idleStart > 0 ? raw - idleStart : 999.0
                     let rampT = min(elapsed / 1.2, 1.0)
                     let ramp = CGFloat(rampT * rampT * (3 - 2 * rampT))
 
@@ -615,7 +631,7 @@ struct WaveformView: View {
                 }
             }
         }
-        .background(Color.black.opacity(0.35))
+        .background(Color.black.opacity(0.5))
         .cornerRadius(8)
         .onChange(of: isPlaying) { wasPlaying, nowPlaying in
             if wasPlaying && !nowPlaying && !isRecording {
