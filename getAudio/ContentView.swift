@@ -124,8 +124,8 @@ struct ContentView: View {
                 drainLevels = manager.audioLevels
                 let elapsed = Date.timeIntervalSinceReferenceDate - recordingStartedAt
                 drainRate = elapsed > 0 ? Double(manager.levelAppendCount) / elapsed : 30
-                await manager.stopRecording()
                 drainStartTime = Date.timeIntervalSinceReferenceDate
+                await manager.stopRecording()
                 if panelState == .collapsed {
                     togglePanel(.list)
                 }

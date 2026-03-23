@@ -237,7 +237,7 @@ class AudioCaptureManager: ObservableObject {
             guard let channelData = buffer.floatChannelData?[0] else { return }
             var rms: Float = 0
             vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(buffer.frameLength))
-            let level = min(rms * 8, 1.0)
+            let level = min(rms * 3, 1.0)
             Task { @MainActor [weak self] in
                 self?.currentRecordingLevel = level
             }
@@ -340,9 +340,8 @@ class AudioCaptureManager: ObservableObject {
                     }
                     player.updateMeters()
                     let avg = player.averagePower(forChannel: 0)
-                    // Convert dB to linear (0-1), dB range roughly -60 to 0
                     let linear = pow(10, avg / 20)
-                    let level = min(linear * 4.5, 1.0)
+                    let level = min(linear * 1.5, 1.0)
                     self.playbackLevels.append(level)
                     if self.playbackLevels.count > Self.maxLevels {
                         self.playbackLevels.removeFirst(self.playbackLevels.count - Self.maxLevels)
@@ -450,7 +449,7 @@ class AudioStreamOutput: NSObject, SCStreamOutput {
         data.withMemoryRebound(to: Float.self, capacity: floatCount) { floatPointer in
             var rms: Float = 0
             vDSP_rmsqv(floatPointer, 1, &rms, vDSP_Length(floatCount))
-            let level = min(rms * 8, 1.0) // Scale up for visible waveform
+            let level = min(rms * 3, 1.0)
             onLevel(level)
         }
     }
