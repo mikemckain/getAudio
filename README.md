@@ -1,13 +1,11 @@
 # getAudio
 
-A minimal macOS audio recorder with a live waveform visualizer.
+A minimal macOS audio recorder
 
 ## Features
 
 - Record system audio or microphone input
 - M4A and WAV format support
-- Animated idle waveform with organic breathing motion
-- Smooth recording transitions
 - Inline rename, reveal in Finder, delete
 
 ## Requirements
