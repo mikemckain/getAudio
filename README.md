@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="getAudio-logo.png" width="128" alt="getAudio icon">
+</p>
+
 # getAudio
 
 A minimal macOS audio recorder
