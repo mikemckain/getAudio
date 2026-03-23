@@ -19,20 +19,27 @@ struct ContentView: View {
     @State private var playingRecording: AudioCaptureManager.Recording?
     @State private var editingRecording: AudioCaptureManager.Recording?
     @State private var editingName: String = ""
+    @State private var drainLevels: [Float] = []
+    @State private var drainStartTime: Double = 0
+    @State private var drainRate: Double = 0
+    @State private var recordingStartedAt: Double = 0
 
     var body: some View {
         VStack(spacing: 0) {
             // Recorder
-            VStack(spacing: 12) {
-                HStack(spacing: 8) {
+            VStack(spacing: 13) {
+                HStack(spacing: 9) {
                     RecordButton(isRecording: manager.isRecording, action: toggleRecording)
 
                     WaveformView(
                         levels: manager.isPlaying ? manager.playbackLevels : manager.audioLevels,
                         isRecording: manager.isRecording,
-                        isPlaying: manager.isPlaying
+                        isPlaying: manager.isPlaying,
+                        drainLevels: $drainLevels,
+                        drainStartTime: drainStartTime,
+                        drainRate: drainRate
                     )
-                    .frame(height: 46)
+                    .frame(height: 50)
                 }
 
                 if let errorMessage {
@@ -41,9 +48,9 @@ struct ContentView: View {
                         .foregroundColor(accentRed)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.top, 6)
-            .padding(.bottom, 14)
+            .padding(.horizontal, 11)
+            .padding(.top, 7)
+            .padding(.bottom, 15)
             .frame(maxWidth: .infinity)
             .background(Color(red: 0.18, green: 0.18, blue: 0.19))
             .fixedSize(horizontal: false, vertical: true)
@@ -113,7 +120,11 @@ struct ContentView: View {
     private func toggleRecording() {
         Task {
             if manager.isRecording {
+                drainLevels = manager.audioLevels
+                let elapsed = Date.timeIntervalSinceReferenceDate - recordingStartedAt
+                drainRate = elapsed > 0 ? Double(manager.levelAppendCount) / elapsed : 30
                 await manager.stopRecording()
+                drainStartTime = Date.timeIntervalSinceReferenceDate
                 if panelState == .collapsed {
                     togglePanel(.list)
                 }
@@ -127,6 +138,7 @@ struct ContentView: View {
             } else {
                 do {
                     errorMessage = nil
+                    recordingStartedAt = Date.timeIntervalSinceReferenceDate
                     try await manager.startRecording()
                 } catch {
                     errorMessage = error.localizedDescription
@@ -225,9 +237,17 @@ struct RecordingRow: View {
     var body: some View {
         HStack(spacing: 10) {
             PlayButton(isPlaying: isPlaying, action: onPlay)
+                .frame(width: 42)
 
             if isEditing {
                 SelectAllTextField(text: $editingName, onSubmit: onCommitEditing, onCancel: onCancelEditing)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 6)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.primary.opacity(0.2), lineWidth: 1)
+                    )
             } else {
                 Text(recording.name)
                     .font(.system(.body))
@@ -250,7 +270,7 @@ struct RecordingRow: View {
                 .help("Delete")
         }
         .padding(.vertical, 12)
-        .listRowInsets(EdgeInsets(top: 0, leading: -6, bottom: 0, trailing: -6))
+        .listRowInsets(EdgeInsets(top: 0, leading: -3, bottom: 0, trailing: -3))
         .listRowSeparatorTint(Color.primary.opacity(0.08))
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
         .alignmentGuide(.listRowSeparatorTrailing) { d in d[.trailing] }
@@ -267,21 +287,21 @@ struct RecordButton: View {
     var body: some View {
         Button(action: action) {
             if isRecording {
-                RoundedRectangle(cornerRadius: 5)
+                RoundedRectangle(cornerRadius: 5.5)
                     .fill(accentRed)
-                    .frame(width: 17, height: 17)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 19, height: 19)
+                    .frame(width: 48, height: 48)
                     .background(accentRed.opacity(0.15))
-                    .cornerRadius(12)
-                    .frame(width: 46, height: 46)
+                    .cornerRadius(13)
+                    .frame(width: 50, height: 50)
             } else {
                 Circle()
                     .fill(Color(red: 0.9, green: 0.2, blue: 0.15))
-                    .frame(width: 20, height: 20)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 22, height: 22)
+                    .frame(width: 48, height: 48)
                     .background(Color.white.opacity(isHovered ? 0.7 : 0.65))
-                    .cornerRadius(12)
-                    .frame(width: 46, height: 46)
+                    .cornerRadius(13)
+                    .frame(width: 50, height: 50)
             }
         }
         .buttonStyle(.plain)
@@ -299,10 +319,10 @@ struct PlayButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                .font(.system(size: 16))
+                .font(.system(size: 13))
                 .foregroundColor(accentPurple)
-                .frame(width: 46, height: 46)
-                .background(isHovered ? accentPurple.opacity(0.15) : accentPurple.opacity(0.08))
+                .frame(width: 36, height: 36)
+                .background(isHovered ? accentPurple.opacity(0.2) : accentPurple.opacity(0.12))
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
@@ -401,7 +421,7 @@ struct WindowAccessor: NSViewRepresentable {
             window.backgroundColor = NSColor.controlBackgroundColor
 
             // Snap to defaultSize height to clear any cached frame
-            let targetHeight: CGFloat = 68
+            let targetHeight: CGFloat = 75
             var frame = window.frame
             let topY = frame.origin.y + frame.size.height
             frame.size.height = targetHeight
@@ -424,6 +444,11 @@ struct WaveformView: View {
     let levels: [Float]
     let isRecording: Bool
     let isPlaying: Bool
+    @Binding var drainLevels: [Float]
+    var drainStartTime: Double
+    var drainRate: Double
+    @State private var idleStart: Double = 0
+    @State private var lastRenderedLevels: [Float] = []
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
@@ -438,10 +463,18 @@ struct WaveformView: View {
 
                 if isRecording {
                     let visibleLevels = levels.suffix(maxBars)
+                    let emptyBars = maxBars - visibleLevels.count
+                    for i in 0..<emptyBars {
+                        let x = CGFloat(i) * step
+                        let h: CGFloat = 3
+                        let y = (size.height - h) / 2
+                        let rect = CGRect(x: x, y: y, width: barWidth, height: h)
+                        context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(Color.white.opacity(0.15)))
+                    }
                     let startX = size.width - CGFloat(visibleLevels.count) * step
                     for (i, level) in visibleLevels.enumerated() {
                         let x = startX + CGFloat(i) * step
-                        let height = max(CGFloat(level) * size.height * 0.75, 1.5)
+                        let height = max(CGFloat(level) * size.height * 0.95, 1.5)
                         let y = (size.height - height) / 2
                         let rect = CGRect(x: x, y: y, width: barWidth, height: height)
                         context.fill(
@@ -449,12 +482,22 @@ struct WaveformView: View {
                             with: .color(accentRed.opacity(Double(0.4 + level * 0.6)))
                         )
                     }
+                    // Snapshot for seamless drain transition
+                    DispatchQueue.main.async { lastRenderedLevels = Array(visibleLevels) }
                 } else if isPlaying {
                     let visibleLevels = levels.suffix(maxBars)
+                    let emptyBars = maxBars - visibleLevels.count
+                    for i in 0..<emptyBars {
+                        let x = CGFloat(i) * step
+                        let h: CGFloat = 3
+                        let y = (size.height - h) / 2
+                        let rect = CGRect(x: x, y: y, width: barWidth, height: h)
+                        context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(Color.white.opacity(0.15)))
+                    }
                     let startX = size.width - CGFloat(visibleLevels.count) * step
                     for (i, level) in visibleLevels.enumerated() {
                         let x = startX + CGFloat(i) * step
-                        let height = max(CGFloat(level) * size.height * 0.75, 1.5)
+                        let height = max(CGFloat(level) * size.height * 0.95, 1.5)
                         let y = (size.height - height) / 2
                         let rect = CGRect(x: x, y: y, width: barWidth, height: height)
                         context.fill(
@@ -462,8 +505,64 @@ struct WaveformView: View {
                             with: .color(accentPurple.opacity(Double(0.4 + level * 0.6)))
                         )
                     }
+                } else if !drainLevels.isEmpty {
+                    // Draining: red bars scroll left at recording speed, grey fills from right
+                    let frozen = lastRenderedLevels.isEmpty ? Array(drainLevels.suffix(maxBars)) : lastRenderedLevels
+                    let drainElapsed = time - drainStartTime
+                    let rate = drainRate > 0 ? drainRate : 30.0
+                    // Brief ease-in over 100ms to smooth the seam
+                    let easeTime = 0.1
+                    let scrollBars: Double
+                    if drainElapsed < easeTime {
+                        scrollBars = rate * drainElapsed * drainElapsed / (2.0 * easeTime)
+                    } else {
+                        scrollBars = rate * (drainElapsed - easeTime / 2.0)
+                    }
+                    let scrollOffset = CGFloat(scrollBars) * step
+
+                    // Draw frozen red bars shifted left
+                    let visibleFrozen = frozen
+                    let frozenStartX = size.width - CGFloat(visibleFrozen.count) * step - scrollOffset
+                    for (i, level) in visibleFrozen.enumerated() {
+                        let x = frozenStartX + CGFloat(i) * step
+                        if x + barWidth < 0 { continue }
+                        if x >= size.width { break }
+                        let height = max(CGFloat(level) * size.height * 0.95, 1.5)
+                        let y = (size.height - height) / 2
+                        let rect = CGRect(x: x, y: y, width: barWidth, height: height)
+                        context.fill(
+                            Path(roundedRect: rect, cornerRadius: 1),
+                            with: .color(accentRed.opacity(Double(0.4 + level * 0.6)))
+                        )
+                    }
+
+                    // Grey flat bars fill from right
+                    let greyStartX = max(size.width - scrollOffset, 0)
+                    let greyStartBar = Int(ceil(greyStartX / step))
+                    for i in greyStartBar..<maxBars {
+                        let x = CGFloat(i) * step
+                        let h: CGFloat = 3
+                        let y = (size.height - h) / 2
+                        let rect = CGRect(x: x, y: y, width: barWidth, height: h)
+                        context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(Color.white.opacity(0.15)))
+                    }
+
+                    // Drain complete when all bars have scrolled off
+                    if scrollOffset >= size.width {
+                        DispatchQueue.main.async {
+                            drainLevels = []
+                            lastRenderedLevels = []
+                            idleStart = Date.timeIntervalSinceReferenceDate
+                        }
+                    }
                 } else {
                     let t = time
+
+                    // Ramp from flat to full idle over 1.2s
+                    let elapsed = idleStart > 0 ? t - idleStart : 999.0
+                    let rampT = min(elapsed / 1.2, 1.0)
+                    let ramp = CGFloat(rampT * rampT * (3 - 2 * rampT))
+
                     // Global breathing pulses at different rates
                     let breath = sin(t * 0.7) * 0.5 + 0.5
                     let breathSlow = sin(t * 0.35) * 0.5 + 0.5
@@ -477,34 +576,34 @@ struct WaveformView: View {
                         let pos = Double(i) / Double(maxBars)
                         let mirror = min(abs(pos - center) * 2.0, 1.0)
 
-                        // Primary symmetric waves with morphing frequencies
+                        // Idle wave target
                         let wave1 = sin(mirror * (6.0 + morph * 4.0) + t * 0.8) * 0.3
                         let wave2 = sin(mirror * 12.0 - t * 0.5 + sin(t * 0.3) * 2.0) * 0.2
                         let wave3 = cos(mirror * 18.0 + t * 1.2) * 0.12 * (0.5 + breath * 0.5)
                         let wave4 = sin(mirror * 4.0 + t * 0.4) * 0.18
                         let wave5 = cos(mirror * 25.0 - t * 0.9) * 0.08
-
-                        // Organic break — slight pos-based wobble so it's not a perfect mirror
                         let organic = sin(pos * 7.0 + t * 0.25) * 0.04 * sin(t * 0.4)
-
-                        // Ripple emanating from center
                         let ripple = sin(mirror * 22.0 - t * 1.8) * 0.06 * max(1.0 - mirror * 1.5, 0.0)
 
                         let base = 0.12 + breath * 0.1
-                        let combined = base + (wave1 + wave2 + wave3 + wave4 + wave5 + organic + ripple) * (0.25 + breath * 0.18)
-                        let level = max(min(combined, 0.85), 0.03)
+                        let waves = (wave1 + wave2 + wave3 + wave4 + wave5 + organic + ripple) * (0.25 + breath * 0.18)
+                        let idleLevel = max(min(base + waves, 0.85), 0.03)
 
-                        let height = CGFloat(level) * size.height
+                        // Lerp from flat baseline to full idle height
+                        let flatHeight: CGFloat = 3
+                        let fullHeight = CGFloat(idleLevel) * size.height
+                        let height = flatHeight + (fullHeight - flatHeight) * ramp
+
                         let y = (size.height - height) / 2
                         let rect = CGRect(x: x, y: y, width: barWidth, height: height)
 
-                        // Layered opacity — center-bright with flowing modulation
+                        // Opacity ramps from flat grey to full idle
                         let centerFade = 1.0 - mirror * 0.5
                         let opacityWave = sin(mirror * 12.0 + t * 1.2) * 0.06
                         let opacityDrift = sin(pos * 6.0 + t * 0.3) * 0.02
-                        let opacity = (0.16 + breath * 0.08 + opacityWave + opacityDrift) * centerFade
+                        let idleOpacity = (0.16 + breath * 0.08 + opacityWave + opacityDrift) * centerFade
+                        let opacity = 0.15 + (idleOpacity - 0.15) * Double(ramp)
 
-                        // Bright grey with subtle luminance variation
                         let lum = 0.82 + sin(mirror * 6.0 + t * 0.7) * 0.06 * breathSlow
                         let shimmer = 1.0 + cos(mirror * 16.0 - t * 1.1) * 0.03
 
@@ -518,6 +617,11 @@ struct WaveformView: View {
         }
         .background(Color.black.opacity(0.35))
         .cornerRadius(8)
+        .onChange(of: isPlaying) { wasPlaying, nowPlaying in
+            if wasPlaying && !nowPlaying && !isRecording {
+                idleStart = Date.timeIntervalSinceReferenceDate
+            }
+        }
     }
 }
 
@@ -532,8 +636,9 @@ struct SelectAllTextField: NSViewRepresentable {
         let field = NSTextField()
         field.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         field.delegate = context.coordinator
-        field.isBordered = true
-        field.bezelStyle = .roundedBezel
+        field.isBordered = false
+        field.focusRingType = .none
+        field.drawsBackground = false
         return field
     }
 
@@ -542,10 +647,10 @@ struct SelectAllTextField: NSViewRepresentable {
             nsView.stringValue = text
         }
         if !context.coordinator.didSelectAll {
-            context.coordinator.didSelectAll = true
             DispatchQueue.main.async {
                 nsView.window?.makeFirstResponder(nsView)
                 nsView.selectText(nil)
+                context.coordinator.didSelectAll = true
             }
         }
     }
@@ -561,6 +666,12 @@ struct SelectAllTextField: NSViewRepresentable {
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
             parent.text = field.stringValue
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            guard didSelectAll else { return }
+            didSelectAll = false
+            parent.onSubmit()
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

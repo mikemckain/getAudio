@@ -37,6 +37,7 @@ class AudioCaptureManager: ObservableObject {
     @Published var recordings: [Recording] = []
     @Published var audioLevels: [Float] = []
     @Published var playbackLevels: [Float] = []
+    var levelAppendCount: Int = 0
 
     @Published var sortOrder: SortOrder = .dateNewest {
         didSet {
@@ -152,6 +153,7 @@ class AudioCaptureManager: ObservableObject {
         }
 
         audioLevels = []
+        levelAppendCount = 0
         isRecording = true
     }
 
@@ -177,6 +179,7 @@ class AudioCaptureManager: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.audioLevels.append(level)
+                self.levelAppendCount += 1
                 if self.audioLevels.count > Self.maxLevels {
                     self.audioLevels.removeFirst(self.audioLevels.count - Self.maxLevels)
                 }
@@ -221,6 +224,7 @@ class AudioCaptureManager: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.audioLevels.append(level)
+                self.levelAppendCount += 1
                 if self.audioLevels.count > Self.maxLevels {
                     self.audioLevels.removeFirst(self.audioLevels.count - Self.maxLevels)
                 }
@@ -324,7 +328,7 @@ class AudioCaptureManager: ObservableObject {
                     let avg = player.averagePower(forChannel: 0)
                     // Convert dB to linear (0-1), dB range roughly -60 to 0
                     let linear = pow(10, avg / 20)
-                    let level = min(linear * 2.5, 1.0)
+                    let level = min(linear * 4.5, 1.0)
                     self.playbackLevels.append(level)
                     if self.playbackLevels.count > Self.maxLevels {
                         self.playbackLevels.removeFirst(self.playbackLevels.count - Self.maxLevels)
