@@ -289,29 +289,40 @@ struct RecordButton: View {
     let isRecording: Bool
     let action: () -> Void
     @State private var isHovered = false
+    @State private var isPressed = false
 
     var body: some View {
-        Button(action: action) {
-            if isRecording {
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(accentRed)
-                    .frame(width: 25, height: 25)
-                    .frame(width: 72, height: 72)
-                    .background(accentRed.opacity(0.15))
-                    .cornerRadius(18)
-                    .frame(width: 78, height: 78)
-            } else {
+        ZStack {
+                // Subtle red background
                 Circle()
+                    .fill(accentRed.opacity(isRecording ? 0.12 : 0))
+                    .frame(width: 56, height: 56)
+
+                // Red shape — morphs between circle and rounded square
+                RoundedRectangle(cornerRadius: isRecording ? 6 : 24)
                     .fill(Color(red: 0.9, green: 0.2, blue: 0.15))
-                    .frame(width: 28, height: 28)
-                    .frame(width: 72, height: 72)
-                    .background(Color.white.opacity(isHovered ? 0.7 : 0.65))
-                    .cornerRadius(18)
-                    .frame(width: 78, height: 78)
-            }
+                    .frame(
+                        width: isRecording ? 24 : 48,
+                        height: isRecording ? 24 : 48
+                    )
+                    .scaleEffect(isPressed ? (isRecording ? 0.9 : 1.08) : 1.0)
+
+                // White ring
+                Circle()
+                    .stroke(Color.white.opacity(0.5), lineWidth: 2)
+                    .frame(width: 58, height: 58)
         }
-        .buttonStyle(.plain)
+        .frame(width: 78, height: 78)
+        .animation(.spring(response: 0.35, dampingFraction: 0.6), value: isRecording)
+        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isPressed)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovered)
         .onHover { isHovered = $0 }
+        .onTapGesture { action() }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
     }
 }
 

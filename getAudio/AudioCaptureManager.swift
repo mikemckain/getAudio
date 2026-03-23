@@ -149,12 +149,7 @@ class AudioCaptureManager: ObservableObject {
         let filename = Self.dateFormatter.string(from: Date()) + "." + audioFormat.ext
         let outputURL = recordingsDirectory.appendingPathComponent(filename)
 
-        if audioSource == .mic {
-            try startMicRecording(outputURL: outputURL)
-        } else {
-            try await startSystemRecording(outputURL: outputURL)
-        }
-
+        // Immediate UI response
         audioLevels = []
         levelAppendCount = 0
         currentRecordingLevel = 0
@@ -169,6 +164,19 @@ class AudioCaptureManager: ObservableObject {
                     self.audioLevels.removeFirst(self.audioLevels.count - Self.maxLevels)
                 }
             }
+        }
+
+        do {
+            if audioSource == .mic {
+                try startMicRecording(outputURL: outputURL)
+            } else {
+                try await startSystemRecording(outputURL: outputURL)
+            }
+        } catch {
+            levelTimer?.invalidate()
+            levelTimer = nil
+            isRecording = false
+            throw error
         }
     }
 
@@ -242,6 +250,12 @@ class AudioCaptureManager: ObservableObject {
     }
 
     func stopRecording() async {
+        // Immediate UI response
+        levelTimer?.invalidate()
+        levelTimer = nil
+        isRecording = false
+        audioLevels = []
+
         if let stream = stream {
             try? await stream.stopCapture()
             self.stream = nil
@@ -265,10 +279,6 @@ class AudioCaptureManager: ObservableObject {
             self.micOutputURL = nil
         }
 
-        levelTimer?.invalidate()
-        levelTimer = nil
-        isRecording = false
-        audioLevels = []
         loadRecordings()
         NSSound(named: "Pop")?.play()
     }
