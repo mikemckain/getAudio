@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="github-header.png" alt="getAudio">
+  <img src="github-header.png" alt="rec">
 </p>
 
-# getAudio
+# red
 
 A minimal macOS audio recorder
 
@@ -18,7 +18,7 @@ A minimal macOS audio recorder
 
 ## Install
 
-1. Download `getAudio.zip` from [Releases](https://github.com/mikemckain/getAudio/releases/latest)
-2. Unzip and move `getAudio.app` to your Applications folder
+1. Download `rec.zip` from [Releases](https://github.com/mikemckain/rec/releases/latest)
+2. Unzip and move `rec.app` to your Applications folder
 3. First launch: right-click the app, then click Open (macOS will warn about unsigned app — one-time step)
 4. Grant Screen Recording permission when prompted (required for system audio capture)
