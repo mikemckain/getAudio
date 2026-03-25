@@ -7,19 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		089C1665F88E39A09244ECC1 /* getAudioApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 089C1665F88E39A09244ECB1 /* getAudioApp.swift */; };
+		089C1665F88E39A09244ECC1 /* recApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 089C1665F88E39A09244ECB1 /* recApp.swift */; };
 		089C1665F88E39A09244ECC2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 089C1665F88E39A09244ECB2 /* ContentView.swift */; };
 		089C1665F88E39A09244ECC3 /* AudioCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 089C1665F88E39A09244ECB3 /* AudioCaptureManager.swift */; };
 		089C1665F88E39A09244ECC6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 089C1665F88E39A09244ECB9 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		089C1665F88E39A09244ECB1 /* getAudioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = getAudioApp.swift; sourceTree = "<group>"; };
+		089C1665F88E39A09244ECB1 /* recApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = recApp.swift; sourceTree = "<group>"; };
 		089C1665F88E39A09244ECB2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		089C1665F88E39A09244ECB3 /* AudioCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureManager.swift; sourceTree = "<group>"; };
 		089C1665F88E39A09244ECB4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		089C1665F88E39A09244ECB5 /* getAudio.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = getAudio.entitlements; sourceTree = "<group>"; };
-		089C1665F88E39A09244ECB6 /* getAudio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = getAudio.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		089C1665F88E39A09244ECB5 /* rec.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = rec.entitlements; sourceTree = "<group>"; };
+		089C1665F88E39A09244ECB6 /* rec.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = rec.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		089C1665F88E39A09244ECB9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -37,28 +37,28 @@
 		089C1665F88E39A09244ECA2 = {
 			isa = PBXGroup;
 			children = (
-				089C1665F88E39A09244ECA3 /* getAudio */,
+				089C1665F88E39A09244ECA3 /* rec */,
 				089C1665F88E39A09244ECA4 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		089C1665F88E39A09244ECA3 /* getAudio */ = {
+		089C1665F88E39A09244ECA3 /* rec */ = {
 			isa = PBXGroup;
 			children = (
-				089C1665F88E39A09244ECB1 /* getAudioApp.swift */,
+				089C1665F88E39A09244ECB1 /* recApp.swift */,
 				089C1665F88E39A09244ECB2 /* ContentView.swift */,
 				089C1665F88E39A09244ECB3 /* AudioCaptureManager.swift */,
 				089C1665F88E39A09244ECB4 /* Info.plist */,
-				089C1665F88E39A09244ECB5 /* getAudio.entitlements */,
+				089C1665F88E39A09244ECB5 /* rec.entitlements */,
 				089C1665F88E39A09244ECB9 /* Assets.xcassets */,
 			);
-			path = getAudio;
+			path = rec;
 			sourceTree = "<group>";
 		};
 		089C1665F88E39A09244ECA4 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				089C1665F88E39A09244ECB6 /* getAudio.app */,
+				089C1665F88E39A09244ECB6 /* rec.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -66,9 +66,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		089C1665F88E39A09244ECD1 /* getAudio */ = {
+		089C1665F88E39A09244ECD1 /* rec */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 089C1665F88E39A09244ECF2 /* Build configuration list for PBXNativeTarget "getAudio" */;
+			buildConfigurationList = 089C1665F88E39A09244ECF2 /* Build configuration list for PBXNativeTarget "rec" */;
 			buildPhases = (
 				089C1665F88E39A09244ECD2 /* Sources */,
 				089C1665F88E39A09244ECD3 /* Frameworks */,
@@ -78,9 +78,9 @@
 			);
 			dependencies = (
 			);
-			name = getAudio;
-			productName = getAudio;
-			productReference = 089C1665F88E39A09244ECB6 /* getAudio.app */;
+			name = rec;
+			productName = rec;
+			productReference = 089C1665F88E39A09244ECB6 /* rec.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -93,7 +93,7 @@
 				LastSwiftUpdateCheck = 1500;
 				LastUpgradeCheck = 1500;
 			};
-			buildConfigurationList = 089C1665F88E39A09244ECF1 /* Build configuration list for PBXProject "getAudio" */;
+			buildConfigurationList = 089C1665F88E39A09244ECF1 /* Build configuration list for PBXProject "rec" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -106,7 +106,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				089C1665F88E39A09244ECD1 /* getAudio */,
+				089C1665F88E39A09244ECD1 /* rec */,
 			);
 		};
 /* End PBXProject section */
@@ -127,7 +127,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				089C1665F88E39A09244ECC1 /* getAudioApp.swift in Sources */,
+				089C1665F88E39A09244ECC1 /* recApp.swift in Sources */,
 				089C1665F88E39A09244ECC2 /* ContentView.swift in Sources */,
 				089C1665F88E39A09244ECC3 /* AudioCaptureManager.swift in Sources */,
 			);
@@ -251,19 +251,19 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = getAudio/getAudio.entitlements;
+				CODE_SIGN_ENTITLEMENTS = rec/rec.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = 6X9J3C624T;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = getAudio/Info.plist;
+				INFOPLIST_FILE = rec/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mike.getAudio;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mike.rec;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -274,19 +274,19 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = getAudio/getAudio.entitlements;
+				CODE_SIGN_ENTITLEMENTS = rec/rec.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = 6X9J3C624T;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = getAudio/Info.plist;
+				INFOPLIST_FILE = rec/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mike.getAudio;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mike.rec;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -296,7 +296,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		089C1665F88E39A09244ECF1 /* Build configuration list for PBXProject "getAudio" */ = {
+		089C1665F88E39A09244ECF1 /* Build configuration list for PBXProject "rec" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				089C1665F88E39A09244ECE1 /* Debug */,
@@ -305,7 +305,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		089C1665F88E39A09244ECF2 /* Build configuration list for PBXNativeTarget "getAudio" */ = {
+		089C1665F88E39A09244ECF2 /* Build configuration list for PBXNativeTarget "rec" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				089C1665F88E39A09244ECE3 /* Debug */,

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct getAudioApp: App {
+struct recApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
