@@ -2,7 +2,7 @@
   <img src="github-header.png" alt="rec">
 </p>
 
-# red
+# rec
 
 A minimal macOS audio recorder
 
